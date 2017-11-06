@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.IO;
+using System.Runtime.Remoting.Metadata.W3cXsd2001;
 
 
 namespace Classification
@@ -20,8 +21,7 @@ namespace Classification
         private static List<List<Double>> pointsOfDivision;
         private static double[] decisionAttributesProbabilities;
         private static double[,,] conditionalProbabilitiesMatrix;
-        private static char splitRegex = ',';
-        private static String joinRegex = ",";
+        private static String dataSeparator = ",";
         private static int decAttPosition;
         private static List<int> attributesValuesNumbers;
         private static int horizontalLength;
@@ -29,20 +29,22 @@ namespace Classification
         public static void MakeClassifier(String addressOfTrainingSet) 
         {
             StreamReader fileReader = new StreamReader(addressOfTrainingSet);
-            attributes = fileReader.ReadLine().Split(splitRegex);
+            attributes = fileReader.ReadLine().Split(new []{dataSeparator}, StringSplitOptions.None);
+            fileReader.Close();
+
             horizontalLength = attributes.Length;
             attributesTypes = new String[horizontalLength];
             pointsOfDivision = new List<List<Double>>();
             attributesValuesNumbers = new List<int>();
-        
+            
             // TODO: change marks of attributes types for english equivalents.
             // User enters types of attributes.
             for(int i = 0; i < attributesTypes.Length; i++)
             {
                 do
                 {
-                    Console.WriteLine($"Following attribute has been founded: {attributes[i]}. Enter its type: \"K\" " +
-                                      $"for categorical, \"L\" for number valued or \"D\" for decision attribute." +
+                    Console.WriteLine($"Following attribute has been founded: {attributes[i]}. Enter its type: \"K\"" +
+                                      $" for categorical, \"L\" for number valued or \"D\" for decision attribute." +
                                       $"Type \"P\" to skip it in process.");
                     attributesTypes[i]=Console.ReadLine();
                 } while(!(attributesTypes[i].Equals("K") ^ attributesTypes[i].Equals("L") ^ 
@@ -50,8 +52,8 @@ namespace Classification
         
                 if (attributesTypes[i].Equals("L"))
                 {
-                    Console.WriteLine("Values of attribute will be divided into right-closed intervals. Enter division " +
-                                      "points in ascending order, separating them with \";\".");
+                    Console.WriteLine("Values of attribute will be divided into right-closed intervals. Enter " +
+                                      "division points in ascending order, separating them with \";\".");
                     String[] sPoints = Console.ReadLine().Split(';');
                     List<Double> dPoints = new List<Double>();
                     foreach (String point in sPoints) 
@@ -77,47 +79,21 @@ namespace Classification
                 
                 if (attributesTypes[i].Equals("D"))
                 {
-                    decAttPosition=i;
+                    decAttPosition = i;
                 }
             }
         
             // Records counting.
-            int verticalLength = 0;
-            try
-            {
-                while (fileReader.Peek() > -1)
-                {
-                    fileReader.ReadLine();
-                    verticalLength++;
-                }
-            }
-            catch(IOException ex)
-            {
-                Console.WriteLine("Something is wrong with records counting...");
-            }
+            int verticalLength = HelpTools.CountLines(addressOfTrainingSet);
             
-            // TODO: separate case when first line isn't attributes names line. 
+            // TODO: separate case when first line isn't an attributes names line. 
             // Records number is 1 less than lines number, because first line contains attributes names.
             int recordsNumber = verticalLength - 1;
-            Console.WriteLine("W bazie danych jest "+ recordsNumber + " rekordów.");
-    
-            // Pointer back to first line.
-            fileReader = new StreamReader(addressOfTrainingSet);
+            Console.WriteLine($"Database contains {recordsNumber} records.");
     
             // Create array containing all data from database.
-            String[,] dataBase = new String[recordsNumber,horizontalLength];
-            String[] helpArray = new String[horizontalLength];
-            fileReader.ReadLine();
-            for (int i = 0; i< recordsNumber; i++)
-            {
-                helpArray=fileReader.ReadLine().Split(splitRegex);
-                for(int q = 0; q < helpArray.Length; q++)
-                {
-                    dataBase[i,q] = helpArray[q];
-                }
-            }
-            
-            fileReader.Close();
+            String[,] dataBase = HelpTools.DataBaseToArray(addressOfTrainingSet, dataSeparator, false);
+            // First line from the file, with attributes names, was read before.
         
             // Create lists of arrays, containing all occurring categorical attributes values.
             attributesValues = new List<String[]>();
@@ -128,9 +104,9 @@ namespace Classification
                 {
                     HashSet<String> categoricalValuesSet = new HashSet<String>();
         
-                    for (int tt = 0; tt < dataBase.GetLength(0); tt++)
+                    for (int t = 0; t < dataBase.GetLength(0); t++)
                     {
-                        categoricalValuesSet.Add(dataBase[tt,i]);
+                        categoricalValuesSet.Add(dataBase[t,i]);
                     }
         
                     String[] categoricalValues = new String[categoricalValuesSet.Count];
@@ -147,6 +123,7 @@ namespace Classification
             int maxAttributesValuesNumber = attributesValuesNumbers.Max();
         
             // At this point, all needed data to make classifier was gathered.
+            
             decisionAttributeValues = attributesValues.ElementAt(decAttPosition);
             double[,,] countMatrix = new double[decisionAttributeValues.Length,horizontalLength,
                 maxAttributesValuesNumber];
@@ -161,12 +138,12 @@ namespace Classification
                     {
                         for (int j = 0; j < horizontalLength; j++)
                         {
-                            if (j!=decAttPosition)
+                            if (j != decAttPosition)
                             {
                                 // For categorical attributes.
                                 if (attributesTypes[j].Equals("K"))
                                 {
-                                    for (int k = 0; k< attributesValuesNumbers.ElementAt(j); k++)
+                                    for (int k = 0; k < attributesValuesNumbers.ElementAt(j); k++)
                                     {
                                         if (attributesValues.ElementAt(j)[k].Equals(dataBase[n,j]))
                                             countMatrix[i,j,k]++;
@@ -200,20 +177,20 @@ namespace Classification
         
             // Counts probabilities of occurrences decision attributes values.
             decisionAttributesProbabilities = new double[decisionAttributesCounters.Length];
-            for (int i = 0; i< decisionAttributesCounters.Length; i++)
+            for (int i = 0; i < decisionAttributesCounters.Length; i++)
             {
-                decisionAttributesProbabilities[i]=decisionAttributesCounters[i] / recordsNumber;
+                decisionAttributesProbabilities[i] = decisionAttributesCounters[i] / recordsNumber;
             }
         
             // Create matrix of conditional probabilities.
             conditionalProbabilitiesMatrix = new double[decisionAttributeValues.Length,horizontalLength,
                 maxAttributesValuesNumber];
             
-            for (int i = 0; i<decisionAttributeValues.Length; i++)
+            for (int i = 0; i < decisionAttributeValues.Length; i++)
             {
-                for (int j = 0; j<horizontalLength; j++)
+                for (int j = 0; j < horizontalLength; j++)
                 {
-                    if(j!=decAttPosition && !(attributesTypes[j].Equals("P")))
+                    if(j != decAttPosition && !attributesTypes[j].Equals("P"))
                     {
                         double[] zeroCheckArray = new double[attributesValuesNumbers.ElementAt(j)];           
                         for (int r = 0; r < attributesValuesNumbers.ElementAt(j); r++)
@@ -225,7 +202,7 @@ namespace Classification
                         // Solves zero problem.
                         if (zeroCheckArray[0]!=0)
                         {
-                            for (int k = 0; k<attributesValuesNumbers.ElementAt(j); k++)
+                            for (int k = 0; k < attributesValuesNumbers.ElementAt(j); k++)
                             {
                                 conditionalProbabilitiesMatrix[i,j,k] = countMatrix[i,j,k] / 
                                                                         decisionAttributesCounters[i];
@@ -234,10 +211,10 @@ namespace Classification
                         else
                         {
                             // Use Laplacian estimator.
-                            for (int k = 0; k<attributesValuesNumbers.ElementAt(j); k++)
+                            for (int k = 0; k < attributesValuesNumbers.ElementAt(j); k++)
                             {
                                 conditionalProbabilitiesMatrix[i,j,k] = (countMatrix[i,j,k]+1) /
-                                    (decisionAttributesCounters[i]+attributesValuesNumbers.ElementAt(j));
+                                    (decisionAttributesCounters[i] + attributesValuesNumbers.ElementAt(j));
                             }
                         }
                     }
@@ -260,10 +237,10 @@ namespace Classification
             {
                 recordNumber++;
                 String line = fileReader.ReadLine();
-                String[] record = line.Split(splitRegex);
+                String[] record = line.Split(new []{dataSeparator}, StringSplitOptions.None);
                 double[] probabilities = (double[])decisionAttributesProbabilities.Clone();
                     
-                for(int i = 0; i< probabilities.Length; i++)
+                for(int i = 0; i < probabilities.Length; i++)
                 {
                     for (int j = 0; j < horizontalLength; j++)
                     {
@@ -271,7 +248,7 @@ namespace Classification
                         {
                             // For categorical attributes.
                             if (attributesTypes[j].Equals("K")) {
-                                for (int k = 0; k<attributesValuesNumbers.ElementAt(j); k++) 
+                                for (int k = 0; k < attributesValuesNumbers.ElementAt(j); k++) 
                                 {
                                     if (attributesValues.ElementAt(j)[k].Equals(record[j]))
                                     {
@@ -305,7 +282,7 @@ namespace Classification
                 for(int i = 1; i < probabilities.Length; i++)
                 {
                     if (probabilities[i] > probabilities[indexOfMaxProbability])
-                        indexOfMaxProbability=i;
+                        indexOfMaxProbability = i;
                 }
     
                 Console.WriteLine($"Record {recordNumber} has been classified into decision class " +
@@ -323,17 +300,17 @@ namespace Classification
                     }
                 }
     
-                // Writing complete record to text file.
+                // Writing complete record to text file. TODO: Add comment about case when code after if works.
                 if(record.Length < horizontalLength)
                 {
                     List<String> completeRecord = new List<String>(record.ToList());
                     completeRecord.Insert(decAttPosition,decisionAttributeValues[indexOfMaxProbability]);
-                    fileWriter.Write(String.Join(joinRegex,completeRecord));
+                    fileWriter.Write(String.Join(dataSeparator,completeRecord));
                 }
                 else
                 {
-                    record[decAttPosition]=decisionAttributeValues[indexOfMaxProbability];
-                    fileWriter.Write(String.Join(joinRegex,record));
+                    record[decAttPosition] = decisionAttributeValues[indexOfMaxProbability];
+                    fileWriter.Write(String.Join(dataSeparator,record));
                 }
                 
                 fileWriter.WriteLine();
@@ -345,7 +322,7 @@ namespace Classification
             {
                 Console.WriteLine($"{correct} records were classified correctly.");
                 Console.WriteLine($"{incorrect} records were classified incorrectly.");
-                Console.WriteLine($"Accuracy of classification was: {correct/recordNumber:P}.");
+                Console.WriteLine($"Accuracy of classification was: {correct / recordNumber :P}.");
             }
         }
     }
